@@ -9,6 +9,11 @@ defmodule Mix.Appsignal.Helper do
 
   @max_retries 5
 
+  @proxy_env_vars [
+    "https_proxy", "HTTPS_PROXY",
+    "http_proxy", "HTTP_PROXY"
+  ]
+
   def install do
     report = initial_report()
 
@@ -136,7 +141,13 @@ defmodule Mix.Appsignal.Helper do
   defp do_download_file!(url, filename, retries \\ 0)
 
   defp do_download_file!(url, filename, 0) do
-    case :hackney.request(:get, url) do
+    opts =
+      case check_proxy() do
+        nil -> []
+        url when is_binary(url) -> [{:proxy, url}]
+      end
+
+    case :hackney.request(:get, url, [], "", opts) do
       {:ok, 200, _, reference} ->
         case :hackney.body(reference) do
           {:ok, body} -> File.write(filename, body)
@@ -153,6 +164,17 @@ defmodule Mix.Appsignal.Helper do
       :ok -> :ok
       _ -> do_download_file!(url, filename, retries - 1)
     end
+  end
+
+  defp check_proxy do
+    Enum.reduce_while(@proxy_env_vars, nil, fn name, acc ->
+      if value = System.get_env(name) do
+        Mix.shell().info("- using proxy from #{name} (#{value})")
+        {:halt, value}
+      else
+        {:cont, acc}
+      end
+    end)
   end
 
   defp extract_package(filename) do
